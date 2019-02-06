@@ -81,3 +81,9 @@ Although there are a lot of folks who want this, there's a lot of disagreement a
 * Should images & such be loaded relative to the parent document url, or the include url? I can't see how "include url" would work, but a lot of folks are wanting something like that.
 * Should loading include content block the rendering of subsequent content?
 * What would happen if the included content ended `<!--`? Some folks seems to want it to act exactly like SSI.
+
+# Android JSON reader
+
+[Link](https://developer.android.com/reference/android/util/JsonReader).
+
+This isn't really the same thing, but it's the closest I could find on native.
