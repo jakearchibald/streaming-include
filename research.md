@@ -44,7 +44,7 @@ Since the iframe is in the shadow DOM, I'm unsure how it reacts if the element i
 
 I'm not sure what happens if there's a `<base>` element in the output. But I'm also not sure what I think *should* happen.
 
-Since the elements are created in an iframe, they'll have a prototype from the iframe. I think this means custom elements won't be upgraded.
+Since the elements are created in an iframe, they'll have a prototype from the iframe. Except for custom elements, which [work differently](https://static-misc.glitch.me/custom-element-adoption-test/).
 
 Top-level script elements might be executing in the iframe rather than the document. Also Firefox doesn't execute the scripts in the parent document, which I believe is per spec.
 
