@@ -86,4 +86,4 @@ Although there are a lot of folks who want this, there's a lot of disagreement a
 
 [Link](https://developer.android.com/reference/android/util/JsonReader).
 
-This isn't really the same thing, but it's the closest I could find on native.
+This isn't really the same thing, but it's the closest I could find on native to a streaming parser.
