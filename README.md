@@ -105,7 +105,7 @@ When the writable receives the first item, the streaming include is emptied.
 
 It has a `reset()` method that aborts any current writing, and sets `writable` to a new stream.
 
-It can have a `src`. Setting the src locks the writable, fetches the url, pipes the stream through `TextDecoderStream`, `DOMParserStream`, and `DOMParserBlocker`, and pipes it to the writable.
+It can have a `src`. Setting the src calls `reset()`, locks the writable, fetches the url, pipes the stream through `TextDecoderStream`, `DOMParserStream`, and `DOMParserBlocker`, and pipes it to the writable.
 
 ### Questions
 
