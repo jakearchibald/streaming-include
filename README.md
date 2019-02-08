@@ -15,7 +15,7 @@ This repo aims to explore solutions that allow SPAs to stream content into the d
 
 ## Current solutions & feature requests
 
-Most current solutions buffer content, but there are some hacky ways around it. These are covered in a [research document](research.md).
+Most current solutions buffer content, but there are some hacky ways around it. These are covered in the [research](research.md).
 
 ## Low-level solution
 
@@ -28,7 +28,7 @@ const domStream = response.body
   .pipeThrough(new DOMParserStream({ context, contextNS }));
 ```
 
-* `context` (optional) - An element is created with this local name, in a document without a browsing context (like a template), in the HTML namespace. The default is `"body"`.
+* `context` (optional) - An context is created with this local name, in a document without a browsing context (like a template), in the HTML namespace. The default is `"body"`.
 * `contextNS` (optional) - The namespace of the context. HTML by default.
 
 ```js
@@ -41,7 +41,12 @@ for await (const { node, parent, before } of domStream) {
 * `parent` - The node it should be inserted into. Might be null.
 * `before` - The node it should be inserted before. Might be null.
 
-The nodes will not have parents. It's up to the developer to add them wherever they want, or discard them.
+The node will not have a parent. It's up to the developer to add nodes wherever they want, or discard them.
+
+**Note:** The stream yields every node including descendants, not just top-level nodes. This means:
+
+* Once `DOMParserStream` yields a node, it isn't going to add anything to it later.
+* Developers can modify nodes before they're adopted. This means they can change image urls before they're requested, or filter script nodes before they're executed.
 
 In addition, there will be a:
 
@@ -51,10 +56,10 @@ const throttledDOMStream = domStream.passThrough(new DOMParserBlocker());
 
 This will apply the parser-blocking rules of scripts & stylesheets. Namely:
 
-* If a script-blocking stylesheet is seen, it will hold-back any `<script>` until the stylesheet has loaded. However, it may continue to adopt nodes & buffer them (this will allow images to load).
+* If a script-blocking stylesheet is passed through, it will hold-back any `<script>` until the stylesheet has loaded. However, it may continue to adopt nodes & buffer them (this will allow images to load).
 * If a parser-blocking script is encountered, it will wait until that script has executed before adopting further nodes.
 
-Because styles and scripts need to be connected to load/execute, you'll end up with a blocked stream if you aren't adding elements to the DOM.
+Because styles and scripts need to be connected to load/execute, you'll end up with a blocked stream if you aren't adding elements to a document with a browsing context.
 
 ### Questions
 
@@ -77,12 +82,24 @@ Scripts parsed into different documents [shouldn't execute](https://html.spec.wh
 ## High-level solution
 
 ```html
-<streaming-include></streaming-include>
+<streaming-include class="manual"></streaming-include>
+<script>
+  async function demo() {
+    const include = document.querySelector('.manual');
+    const response = await fetch('data.inc');
+    response.body
+      .pipeThrough(new TextDecoderStream())
+      .pipeTo(include.writable);
+  }
+  demo();
+</script>
+
+<streaming-include src="data.inc"></streaming-include>
 ```
 
 A custom element.
 
-It has a `writable` property which is a writable stream. It accepts the objects yielded by `DOMParserStream`, and appends the nodes to their parent, or appends them to the streaming include element.
+It has a `writable` property which is a writable stream. It accepts text chunks, which it internally passes through `DOMParserStream` and `DOMParserBlocker`. It then appends the nodes to their parent, or appends them to the streaming include element if no parent is given.
 
 When the writable receives the first item, the streaming include is emptied.
 
@@ -93,6 +110,10 @@ It can have a `src`. Setting the src locks the writable, fetches the url, pipes 
 ### Questions
 
 What if the `src` response is `!ok`? What if it fails?
+
+With `src`, when does the loading start? What if the element is disconnected and reconnected (I kinda hate what iframe does here).
+
+I'm unsure what format `writable` should accept. Originally it accepted `{ node, parent, before }`, but that isn't particularly high level, you may as well use a div at that point. I've now got it accepting text, which would be friendly to use manually (like `document.write`), but maybe it should just accept bytes.
 
 TODO. I haven't thought too hard about this yet.
 
