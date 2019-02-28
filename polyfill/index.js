@@ -31,50 +31,49 @@ export class DOMParserStream extends TransformStream {
 
     /**
      * @param {Node} node
-     */
-    function getRelatedClones(node) {
-      const clone = /** @type {Node} */ (cloneMap.get(node));
-      const parent = node.parentNode === root ? null : /** @type {(Node)} */(cloneMap.get(/** @type {(Node & ParentNode)} */(node.parentNode)));
-      const nextSibling = node.nextSibling && /** @type {Node} */ (cloneMap.get(node.nextSibling));
-
-      return { clone, parent, nextSibling };
-    }
-
-    /**
-     * @param {Node} node
+     * @param {Node | null} parent
+     * @param {Node | null} nextSibling
      * @returns {ParserChunk}
      */
-    function getChunkForNode(node) {
+    function getChunkForNode(node, parent, nextSibling) {
       if (!cloneMap.has(node)) {
         const clone = node.cloneNode();
         cloneStartPoint.append(clone);
         cloneMap.set(node, clone);
       }
 
-      const { clone, parent, nextSibling } = getRelatedClones(node);
-      return new ParserChunk(clone, parent, nextSibling);
+      return new ParserChunk(
+        /** @type {Node} */ (cloneMap.get(node)),
+        !parent || parent === root ? null : /** @type {Node} */ (cloneMap.get(parent)),
+        !nextSibling ? null : /** @type {Node} */ (cloneMap.get(nextSibling))
+      );
     }
 
     /**
      * @param {Text} node
      * @param {string} oldText
+     * @param {Node | null} parent
+     * @param {Node | null} nextSibling
      * @returns {ParserChunk}
      */
-    function getChunkForTextChange(node, oldText) {
+    function getChunkForTextChange(node, oldText, parent, nextSibling) {
       const additionalText = new Text(node.data.slice(oldText.length));
-      const { parent, nextSibling } = getRelatedClones(node);
-
       cloneStartPoint.append(additionalText);
-      return new ParserChunk(additionalText, parent, nextSibling);
+
+      return new ParserChunk(
+        additionalText,
+        !parent || parent === root ? null : /** @type {Node} */ (cloneMap.get(parent)),
+        !nextSibling ? null : /** @type {Node} */ (cloneMap.get(nextSibling))
+      );
     }
 
     new MutationObserver((entries) => {
       for (const entry of entries) {
-        console.log(entry);
-        for (const node of entry.addedNodes) controller.enqueue(getChunkForNode(node));
+        console.log('node', entry.addedNodes[0], 'parent', entry.target, 'removed', entry.removedNodes[0], 'nextSib', entry.nextSibling);
+        for (const node of entry.addedNodes) controller.enqueue(getChunkForNode(node, entry.target, entry.nextSibling));
         if (entry.type == 'characterData') {
           controller.enqueue(
-            getChunkForTextChange(/** @type {Text} */ (entry.target), /** @type {string} */ (entry.oldValue))
+            getChunkForTextChange(/** @type {Text} */ (entry.target), /** @type {string} */ (entry.oldValue), entry.target, entry.nextSibling)
           );
         }
       }
@@ -92,6 +91,7 @@ export class DOMParserStream extends TransformStream {
       },
       flush() {
         doc.close();
+        console.log('parsed', root);
       }
     });
   }
