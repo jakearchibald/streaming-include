@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "allowJs": true,
+    "checkJs": true,
+    "target": "esnext",
+    "outDir": "out"
+  },
+  "files": ["./index.js"]
+}
