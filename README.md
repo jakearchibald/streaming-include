@@ -79,41 +79,43 @@ The writing would start `"<template>"` followed by whatever is needed to set up 
 
 Scripts parsed into different documents [shouldn't execute](https://html.spec.whatwg.org/multipage/parsing.html#scripts-that-modify-the-page-as-it-is-being-parsed), although they do in Chrome. In this case, we'd want all scripts to execute when they're added to the document. Maybe this could be done by recreating the script element with the same content & attributes in the current document.
 
+## Mid-level solution
+
+```js
+const writable = new DOMWritable(targetElement);
+```
+
+* `targetElement` - The element to insert nodes into.
+
+This writable takes the output of `DOMParserStream` and appends them into the `targetElement`.
+
+```js
+const bodyWritable = new DOMWritable(targetElement);
+const response = await fetch(url);
+const domStream = response.body
+  .pipeThrough(new TextDecoderStream())
+  .pipeThrough(new DOMParserStream())
+  .passThrough(new DOMParserBlocker())
+  .pipeTo(bodyWritable);
+```
+
 ## High-level solution
 
 ```html
-<streaming-include class="manual"></streaming-include>
-<script>
-  async function demo() {
-    const include = document.querySelector('.manual');
-    const response = await fetch('data.inc');
-    response.body
-      .pipeThrough(new TextDecoderStream())
-      .pipeTo(include.writable);
-  }
-  demo();
-</script>
-
 <streaming-include src="data.inc"></streaming-include>
 ```
 
 A custom element.
 
-It has a `writable` property which is a writable stream. It accepts text chunks, which it internally passes through `DOMParserStream` and `DOMParserBlocker`. It then appends the nodes to their parent, or appends them to the streaming include element if no parent is given.
+It fetches the `src`, clears the content of the element, pipes the response through `TextDecoderStream`, `DOMParserStream`, `DOMParserBlocker`, then adds resulting elements (as with `DOMWritable`) to itself.
 
-When the writable receives the first item, the streaming include is emptied.
-
-It has a `reset()` method that aborts any current writing, and sets `writable` to a new stream.
-
-It can have a `src`. Setting the src calls `reset()`, locks the writable, fetches the url, pipes the stream through `TextDecoderStream`, `DOMParserStream`, and `DOMParserBlocker`, and pipes it to the writable.
+When `src` changes, any current stream is cancelled, and the above process starts again.
 
 ### Questions
 
 What if the `src` response is `!ok`? What if it fails?
 
 With `src`, when does the loading start? What if the element is disconnected and reconnected (I kinda hate what iframe does here).
-
-I'm unsure what format `writable` should accept. Originally it accepted `{ node, parent, before }`, but that isn't particularly high level, you may as well use a div at that point. I've now got it accepting text, which would be friendly to use manually (like `document.write`), but maybe it should just accept bytes.
 
 TODO. I haven't thought too hard about this yet.
 
