@@ -79,6 +79,10 @@ The writing would start `"<template>"` followed by whatever is needed to set up 
 
 Scripts parsed into different documents [shouldn't execute](https://html.spec.whatwg.org/multipage/parsing.html#scripts-that-modify-the-page-as-it-is-being-parsed), although they do in Chrome. In this case, we'd want all scripts to execute when they're added to the document. Maybe this could be done by recreating the script element with the same content & attributes in the current document.
 
+The script element will appear in the DOM as soon as `<script>hello` is parsed. We'll need to ensure it isn't yielded until `</script>` is parsed. I guess the same will be true for `<style>`.
+
+The polyfill is HTML-specific. Maybe the naming should reflect that.
+
 ## Mid-level solution
 
 ```js
