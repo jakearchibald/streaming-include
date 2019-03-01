@@ -32,14 +32,14 @@ const domStream = response.body
 * `contextNS` (optional) - The namespace of the context. HTML by default.
 
 ```js
-for await (const { node, parent, before } of domStream) {
-  (parent || document.body).insertBefore(node, before);
+for await (const { node, parent, nextSibling } of domStream) {
+  (parent || document.body).insertBefore(node, nextSibling);
 }
 ```
 
 * `node` - The newly created node.
 * `parent` - The node it should be inserted into. Might be null.
-* `before` - The node it should be inserted before. Might be null.
+* `nextSibling` - The node it should be inserted before. Might be null.
 
 The node will not have a parent. It's up to the developer to add nodes wherever they want, or discard them.
 
