@@ -25,6 +25,8 @@ export class DOMParserStream extends TransformStream {
     const cloneMap = new WeakMap();
     /** @type {Set<Node>} */
     const removedNodes = new Set();
+    /** @type {Parameters<typeof flushNode> | undefined} */
+    let bufferedEntry;
     const doc = document.implementation.createHTMLDocument();
     const cloneStartPoint = document.createElement('template').content;
     doc.write('<template>');
@@ -39,7 +41,7 @@ export class DOMParserStream extends TransformStream {
      * @param {Node | null} parent
      * @param {Node | null} nextSibling
      */
-    function handleAddedNode(node, parent, nextSibling) {
+    function flushNode(node, parent, nextSibling) {
       if (!cloneMap.has(node)) {
         const clone = node.cloneNode();
         cloneStartPoint.append(clone);
@@ -57,7 +59,8 @@ export class DOMParserStream extends TransformStream {
       // If this node has reappeared after an earlier removal, remove it from the set.
       const removedNodeFromSet = removedNodes.delete(node);
 
-      // Otherwise, we check to see if one of the removed nodes has reappeared in this one (due to a parsing error)
+      // Otherwise, we check to see if one of the removed nodes has reappeared in this one (due to a
+      // parsing error)
       if (!removedNodeFromSet) {
         for (const removedNode of removedNodes) {
           if (removedNode.parentNode === node) {
@@ -70,23 +73,22 @@ export class DOMParserStream extends TransformStream {
     }
 
     /**
-     * @param {Text} node
-     * @param {string} oldText
+     * @param {Node} node
      * @param {Node | null} parent
      * @param {Node | null} nextSibling
      */
-    function handleChangedText(node, oldText, parent, nextSibling) {
-      if (parent && parent.nodeType === 3) debugger;
-      const additionalText = new Text(node.data.slice(oldText.length));
-      cloneStartPoint.append(additionalText);
-
-      controller.enqueue(
-        new ParserChunk(
-          additionalText,
-          !parent || parent === root ? null : /** @type {Node} */ (cloneMap.get(parent)),
-          !nextSibling ? null : /** @type {Node} */ (cloneMap.get(nextSibling))
-        )
-      );
+    function handleAddedNode(node, parent, nextSibling) {
+      // Text nodes are buffered until the next node comes along. This means we know the text is
+      // complete by the time we yield it, and we don't need to add more text to it.
+      if (bufferedEntry) {
+        flushNode(...bufferedEntry);
+        bufferedEntry = undefined;
+      }
+      if (node.nodeType === 3) {
+        bufferedEntry = [node, parent, nextSibling];
+        return;
+      }
+      flushNode(node, parent, nextSibling);
     }
 
     new MutationObserver((entries) => {
@@ -101,25 +103,18 @@ export class DOMParserStream extends TransformStream {
         for (const node of entry.addedNodes) {
           handleAddedNode(node, entry.target, entry.nextSibling);
         }
-        if (entry.type == 'characterData') {
-          handleChangedText(/** @type {Text} */ (entry.target), /** @type {string} */ (entry.oldValue), entry.target.parentNode, entry.nextSibling)
-        }
       }
     }).observe(root, {
       subtree: true,
       childList: true,
-      characterData: true,
-      characterDataOldValue: true,
     });
 
     super({
       start(c) { controller = c; },
-      transform(chunk) {
-        doc.write(chunk);
-      },
+      transform(chunk) { doc.write(chunk); },
       flush() {
+        if (bufferedEntry) flushNode(...bufferedEntry);
         doc.close();
-        // console.log('parsed', root);
       }
     });
   }
@@ -134,14 +129,8 @@ export class DOMWritable extends WritableStream {
    */
   constructor(target) {
     super({
-      write({node, nextSibling, parent}) {
-        // If we're adding a text node next to another text node, combine their values
-        const previousSibling = nextSibling ? nextSibling.previousSibling : (parent || target).lastChild;
-        if (node.nodeType === 3 && previousSibling && previousSibling.nodeType === 3) {
-          /** @type {string} */ (previousSibling.nodeValue) += node.nodeValue;
-        } else {
-          (parent || target).insertBefore(node, nextSibling);
-        }
+      write({ node, nextSibling, parent }) {
+        (parent || target).insertBefore(node, nextSibling);
       }
     });
   }
