@@ -55,21 +55,6 @@ export class DOMParserStream extends TransformStream {
           !nextSibling ? null : /** @type {Node} */ (cloneMap.get(nextSibling))
         )
       );
-
-      // If this node has reappeared after an earlier removal, remove it from the set.
-      const removedNodeFromSet = removedNodes.delete(node);
-
-      // Otherwise, we check to see if one of the removed nodes has reappeared in this one (due to a
-      // parsing error)
-      if (!removedNodeFromSet) {
-        for (const removedNode of removedNodes) {
-          if (removedNode.parentNode === node) {
-            handleAddedNode(removedNode, removedNode.parentNode, removedNode.nextSibling);
-            // Exit. The recursive call will take care of removing this item, and rechecking the set.
-            return;
-          }
-        }
-      }
     }
 
     /**
@@ -92,8 +77,10 @@ export class DOMParserStream extends TransformStream {
     }
 
     new MutationObserver((entries) => {
+      /** @type {Set<Node>} */
+      const removedNodes = new Set();
+
       for (const entry of entries) {
-        // console.log('node', entry.addedNodes[0], 'parent', entry.target, 'removed', entry.removedNodes[0], 'nextSib', entry.nextSibling);
         for (const node of entry.removedNodes) {
           // Nodes are removed during parse errors, but will reappear later. They may be inserted
           // into a node that isn't currently in the document, so it won't reappear in addedNodes,
@@ -101,7 +88,27 @@ export class DOMParserStream extends TransformStream {
           removedNodes.add(node);
         }
         for (const node of entry.addedNodes) {
+          removedNodes.delete(node);
           handleAddedNode(node, entry.target, entry.nextSibling);
+        }
+      }
+
+      while (removedNodes.size) {
+        for (const node of removedNodes) {
+          // I don't think there's a case where removed nodes simply disappear, but just in case:
+          if (!root.contains(node)) {
+            removedNodes.delete(node);
+            continue;
+          }
+
+          // If we haven't added the parent or next sibling yet, leave it until a later iteration.
+          if (
+            removedNodes.has(/** @type {Node} */(node.parentNode)) ||
+            (node.nextSibling && removedNodes.has(node.nextSibling))
+          ) continue;
+
+          handleAddedNode(node, node.parentNode, node.nextSibling);
+          removedNodes.delete(node);
         }
       }
     }).observe(root, {
