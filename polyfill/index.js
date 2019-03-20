@@ -29,6 +29,8 @@ export class DOMParserStream extends TransformStream {
     const cloneStartPoint = document.createElement('template').content;
     doc.write('<!DOCTYPE html><body>');
     const root = doc.body;
+    /** @type {Node[]} */
+    const roots = [root];
 
     /** @type {TransformStreamDefaultController<ParserChunk>} */
     let controller;
@@ -93,6 +95,7 @@ export class DOMParserStream extends TransformStream {
         handleAddedNode(node, node.parentNode, null);
       }
 
+      roots.push(template.content);
       observer.observe(template.content, { subtree: true, childList: true });
     }
 
@@ -116,7 +119,7 @@ export class DOMParserStream extends TransformStream {
       while (removedNodes.size) {
         for (const node of removedNodes) {
           // I don't think there's a case where removed nodes simply disappear, but just in case:
-          if (!root.contains(node)) {
+          if (!roots.some(root => root.contains(node))) {
             removedNodes.delete(node);
             continue;
           }
