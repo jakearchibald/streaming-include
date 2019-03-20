@@ -39,10 +39,17 @@ export class DOMParserStream extends TransformStream {
      * @param {Node | null} nextSibling
      */
     function flushNode(node, parent, nextSibling) {
+      let isNewTemplate = false;
+
       if (!cloneMap.has(node)) {
         const clone = node.cloneNode();
         cloneStartPoint.append(clone);
         cloneMap.set(node, clone);
+
+        if (clone instanceof HTMLTemplateElement) {
+          isNewTemplate = true;
+          cloneMap.set(/** @type {HTMLTemplateElement} */ (node).content, clone.content);
+        }
       }
 
       controller.enqueue(
@@ -52,6 +59,8 @@ export class DOMParserStream extends TransformStream {
           !nextSibling ? null : /** @type {Node} */ (cloneMap.get(nextSibling))
         )
       );
+
+      if (isNewTemplate) handleAddedTemplate(/** @type {HTMLTemplateElement} */ (node));
     }
 
     /**
@@ -73,7 +82,21 @@ export class DOMParserStream extends TransformStream {
       flushNode(node, parent, nextSibling);
     }
 
-    new MutationObserver((entries) => {
+    /**
+     * @param {HTMLTemplateElement} template
+     */
+    function handleAddedTemplate(template) {
+      const nodeIttr = doc.createNodeIterator(template.content);
+      let node;
+
+      while (node = nodeIttr.nextNode()) {
+        handleAddedNode(node, node.parentNode, null);
+      }
+
+      observer.observe(template.content, { subtree: true, childList: true });
+    }
+
+    const observer = new MutationObserver((entries) => {
       /** @type {Set<Node>} */
       const removedNodes = new Set();
 
@@ -108,10 +131,9 @@ export class DOMParserStream extends TransformStream {
           removedNodes.delete(node);
         }
       }
-    }).observe(root, {
-      subtree: true,
-      childList: true,
     });
+
+    observer.observe(root, { subtree: true, childList: true });
 
     super({
       start(c) { controller = c; },

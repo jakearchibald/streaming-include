@@ -87,29 +87,37 @@ suite('IMG', () => {
   });
 });
 
-suite('Tricky tests', () => {
-  // These are from https://github.com/html5lib/html5lib-tests/blob/master/tree-construction/tricky01.dat
-  parseHTMLTest('<b><p>Bold </b> Not bold</p>Also not bold.');
-  parseHTMLTest(`<font color=red><i>Italic and Red<p>Italic and Red </font> Just italic.</p> Italic only.</i> Plain
+// These are from https://github.com/html5lib/html5lib-tests/blob/master/tree-construction/tricky01.dat
+const trickyTests = [
+  '<b><p>Bold </b> Not bold</p>Also not bold.',
+  `<font color=red><i>Italic and Red<p>Italic and Red </font> Just italic.</p> Italic only.</i> Plain
 <p>I should not be red. <font color=red>Red. <i>Italic and red.</p>
 <p>Italic and red. </i> Red.</font> I should not be red.</p>
-<b>Bold <i>Bold and italic</b> Only Italic </i> Plain`);
-  parseHTMLTest(`<dl>
+<b>Bold <i>Bold and italic</b> Only Italic </i> Plain`,
+  `<dl>
 <dt><b>Boo
 <dd>Goo?
-</dl>`);
-  parseHTMLTest(`<label><a><div>Hello<div>World</div></a></label>`);
-  parseHTMLTest(`<table><center> <font>a</center> <img> <tr><td> </td> </tr> </table>`);
-  parseHTMLTest(`<table><tr><p><a><p>You should see this text.`);
-  parseHTMLTest(`<TABLE>
+</dl>`,
+  `<label><a><div>Hello<div>World</div></a></label>`,
+  `<table><center> <font>a</center> <img> <tr><td> </td> </tr> </table>`,
+  `<table><tr><p><a><p>You should see this text.`,
+  `<TABLE>
 <TR>
 <CENTER><CENTER><TD></TD></TR><TR>
 <FONT>
 <TABLE><tr></tr></TABLE>
 </P>
-<a></font><font></a>`);
-  parseHTMLTest(`<b><nobr><div>This text is in a div inside a nobr</nobr>More text that should not be in the nobr, i.e., the
-nobr should have closed the div inside it implicitly. </b><pre>A pre tag outside everything else.</pre>`);
+<a></font><font></a>`,
+  `<b><nobr><div>This text is in a div inside a nobr</nobr>More text that should not be in the nobr, i.e., the
+nobr should have closed the div inside it implicitly. </b><pre>A pre tag outside everything else.</pre>`,
+];
+
+suite('Tricky tests', () => {
+  for (const trickyTest of trickyTests) {
+    parseHTMLTest(trickyTest);
+    // Also test within a template
+    parseHTMLTest(`<template>${trickyTest}</template>`);
+  }
 });
 
 mocha.run();
