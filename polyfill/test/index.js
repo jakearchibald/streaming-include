@@ -59,6 +59,34 @@ suite('Templates', () => {
   parseHTMLTest('Hello <template>everyone in the <template>world</template>, ok?</template>');
 });
 
+suite('Edge cases', () => {
+  parseHTMLTest('hello </template> world');
+  parseHTMLTest('hello </body> world');
+  parseHTMLTest('hello </html> world');
+  parseHTMLTest('hello <p> everyone in the </html> world');
+});
+
+suite('IMG', () => {
+  test('Images do not load until connected', async () => {
+    const transform = new DOMParserStream();
+    const reader = transform.readable.getReader();
+    const writer = transform.writable.getWriter();
+    writer.write('<img src="img.png">');
+    writer.close();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) throw Error('Unexpected done');
+
+      const img = /** @type {HTMLImageElement} */ (value.node);
+      assert.instanceOf(img, HTMLImageElement);
+      assert.isTrue(img.complete);
+      assert.strictEqual(img.naturalHeight, 0);
+      return;
+    }
+  });
+});
+
 suite('Tricky tests', () => {
   // These are from https://github.com/html5lib/html5lib-tests/blob/master/tree-construction/tricky01.dat
   parseHTMLTest('<b><p>Bold </b> Not bold</p>Also not bold.');

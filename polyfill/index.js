@@ -23,15 +23,12 @@ export class DOMParserStream extends TransformStream {
   constructor() {
     /** @type {CloneMap<Node>} */
     const cloneMap = new WeakMap();
-    /** @type {Set<Node>} */
-    const removedNodes = new Set();
     /** @type {Parameters<typeof flushNode> | undefined} */
     let bufferedEntry;
     const doc = document.implementation.createHTMLDocument();
     const cloneStartPoint = document.createElement('template').content;
-    doc.write('<template>');
-
-    const root = /** @type {HTMLTemplateElement} */ (doc.querySelector('template')).content;
+    doc.write('<!DOCTYPE html><body>');
+    const root = doc.body;
 
     /** @type {TransformStreamDefaultController<ParserChunk>} */
     let controller;
