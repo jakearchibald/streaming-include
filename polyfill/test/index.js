@@ -40,11 +40,24 @@ function parseHTMLTest(html) {
     }
 
     assert.isTrue(targetInnerHTML.isEqualNode(targetOneChunkStream), 'targetOneChunkStream');
-    console.log(targetInnerHTML.cloneNode(true));
-    console.log(targetMultiChunkStream.cloneNode(true));
+    // Comparing innerHTML as it handles <template>
+    assert.strictEqual(
+      targetInnerHTML.innerHTML, targetOneChunkStream.innerHTML,
+      'targetOneChunkStream innerHTML',
+    );
     assert.isTrue(targetInnerHTML.isEqualNode(targetMultiChunkStream), 'targetMultiChunkStream');
+    assert.strictEqual(
+      targetInnerHTML.innerHTML, targetMultiChunkStream.innerHTML,
+      'targetMultiChunkStream innerHTML',
+    );
   });
 }
+
+suite('Templates', () => {
+  parseHTMLTest('Hello <template>world</template>');
+  parseHTMLTest('Hello <template>everyone in the</template> <template>world</template>');
+  parseHTMLTest('Hello <template>everyone in the <template>world</template>, ok?</template>');
+});
 
 suite('Tricky tests', () => {
   // These are from https://github.com/html5lib/html5lib-tests/blob/master/tree-construction/tricky01.dat
