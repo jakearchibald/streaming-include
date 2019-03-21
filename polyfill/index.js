@@ -17,6 +17,26 @@ class ParserChunk {
 }
 
 /**
+ * @param {Node} node
+ * @returns {Node}
+ */
+function cloneNode(node) {
+  if (node.nodeName !== 'SCRIPT') return node.cloneNode();
+  // Take a manual path for scripts, to avoid copying the "already started" flag
+  // https://html.spec.whatwg.org/multipage/scripting.html#script-processing-model
+  const originalScript = /** @type {HTMLScriptElement} */(/** @type {unknown} */(node));
+  const script = document.createElementNS(
+    /** @type {string} */ (originalScript.namespaceURI), originalScript.localName,
+  );
+  //const attributes = Array.from(originalScript.attributes);
+  for (const attribute of originalScript.attributes) {
+    script.attributes.setNamedItemNS(/** @type {Attr} */(attribute.cloneNode()));
+  }
+
+  return script;
+}
+
+/**
  * @extends {TransformStream<string, ParserChunk>}
  */
 export class DOMParserStream extends TransformStream {
@@ -44,7 +64,7 @@ export class DOMParserStream extends TransformStream {
       let isNewTemplate = false;
 
       if (!cloneMap.has(node)) {
-        const clone = node.cloneNode();
+        const clone = cloneNode(node);
         cloneStartPoint.append(clone);
         cloneMap.set(node, clone);
 

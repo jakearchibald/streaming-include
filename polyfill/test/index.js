@@ -7,6 +7,12 @@ mocha.setup('tdd');
 
 const { assert } = chai;
 
+let globalUniqueCounter = 0;
+
+function getUniqueName() {
+  return 'unique' + globalUniqueCounter++;
+}
+
 function createElementWritable(el) {
   const transform = new DOMParserStream();
   transform.readable.pipeTo(new DOMWritable(el));
@@ -59,19 +65,19 @@ suite('Templates', () => {
   parseHTMLTest('Hello <template>everyone in the <template>world</template>, ok?</template>');
 });
 
-suite('Edge cases', () => {
+suite('Escaping the root', () => {
   parseHTMLTest('hello </template> world');
   parseHTMLTest('hello </body> world');
   parseHTMLTest('hello </html> world');
   parseHTMLTest('hello <p> everyone in the </html> world');
 });
 
-suite('IMG', () => {
+suite('Special elements', () => {
   test('Images do not load until connected', async () => {
     const transform = new DOMParserStream();
     const reader = transform.readable.getReader();
     const writer = transform.writable.getWriter();
-    writer.write('<img src="img.png">');
+    writer.write('<img src="assets/img.png">');
     writer.close();
 
     while (true) {
@@ -84,6 +90,92 @@ suite('IMG', () => {
       assert.strictEqual(img.naturalHeight, 0);
       return;
     }
+  });
+
+  for (const charByChar of [false, true]) {
+    test('Inline script' + (charByChar ? ' char by char' : ''), async () => {
+      const writable = createElementWritable(document.body);
+      const writer = writable.getWriter();
+      const varName = getUniqueName();
+      const content = `<script>${varName} = true;</script>`;
+      if (charByChar) {
+        for (const char of content) writer.write(char);
+      } else {
+        writer.write(content);
+      }
+      await writer.close();
+      assert.isTrue(self[varName]);
+    });
+  }
+
+  test('Inline script partial', async () => {
+    const writable = createElementWritable(document.body);
+    const writer = writable.getWriter();
+    const varName = getUniqueName();
+    await writer.write(`<script>${varName} = true;`);
+    await new Promise(r => setTimeout(r, 0));
+    assert.isUndefined(self[varName]);
+    writer.write(`</script>`);
+    await writer.close();
+    assert.isTrue(self[varName]);
+  });
+
+  for (const charByChar of [false, true]) {
+    test('Script attributes' + (charByChar ? ' char by char' : ''), async () => {
+      const transform = new DOMParserStream();
+      const writer = transform.writable.getWriter();
+      const className = getUniqueName();
+      const dataValue = getUniqueName();
+      const content = `<script class="${className}" data-val="${dataValue}"></script>`;
+      if (charByChar) {
+        for (const char of content) writer.write(char);
+      } else {
+        writer.write(content);
+      }
+      writer.close();
+
+      const { value } = await transform.readable.getReader().read();
+      const script = value.node;
+      assert.instanceOf(script, HTMLScriptElement);
+      assert.strictEqual(script.getAttribute('class'), className, 'class attribute');
+      assert.strictEqual(script.getAttribute('data-val'), dataValue, 'data-val attribute');
+    });
+  }
+
+  for (const charByChar of [false, true]) {
+    test('Inline style' + (charByChar ? ' char by char' : ''), async () => {
+      const writable = createElementWritable(document.body);
+      const writer = writable.getWriter();
+      const className = getUniqueName();
+      const content = `<style>.${className} { background-color: rgb(0, 128, 0); }</style>`;
+      if (charByChar) {
+        for (const char of content) writer.write(char);
+      } else {
+        writer.write(content);
+      }
+      await writer.close();
+      const div = document.createElement('div');
+      div.classList.add(className);
+      document.body.append(div);
+      assert.strictEqual(getComputedStyle(div).backgroundColor, 'rgb(0, 128, 0)');
+      div.remove();
+    });
+  }
+
+  test('Inline style partial', async () => {
+    const writable = createElementWritable(document.body);
+    const writer = writable.getWriter();
+    const className = getUniqueName();
+    await writer.write(`<style>.${className} { background-color: rgb(0, 128, 0); }`);
+    await new Promise(r => setTimeout(r, 0));
+    const div = document.createElement('div');
+    div.classList.add(className);
+    document.body.append(div);
+    assert.strictEqual(getComputedStyle(div).backgroundColor, 'rgba(0, 0, 0, 0)');
+    writer.write(`</style>`);
+    await writer.close();
+    assert.strictEqual(getComputedStyle(div).backgroundColor, 'rgb(0, 128, 0)');
+    div.remove();
   });
 });
 
