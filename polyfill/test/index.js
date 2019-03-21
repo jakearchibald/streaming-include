@@ -19,11 +19,19 @@ function createElementWritable(el) {
   return transform.writable;
 }
 
+function monitorStream(callback) {
+  return new TransformStream({
+    transform(chunk, controller) {
+      callback(chunk);
+      controller.enqueue(chunk);
+    }
+  });
+}
+
 function parseHTMLTest(html) {
   let name = html;
-  if (name.length > 80) {
-    name = name.slice(0, 80) + '…';
-  }
+  if (name.length > 80) name = name.slice(0, 80) + '…';
+
   test(name, async () => {
     const targetInnerHTML = document.createElement('div');
     const targetOneChunkStream = document.createElement('div');
@@ -139,6 +147,33 @@ suite('Special elements', () => {
       assert.instanceOf(script, HTMLScriptElement);
       assert.strictEqual(script.getAttribute('class'), className, 'class attribute');
       assert.strictEqual(script.getAttribute('data-val'), dataValue, 'data-val attribute');
+    });
+  }
+
+  for (const charByChar of [false, true]) {
+
+    test('External script' + (charByChar ? ' char by char' : ''), async () => {
+      const varName = getUniqueName();
+
+      const loadPromise = new Promise((resolve, reject) => {
+        const transform = new DOMParserStream();
+
+        transform.readable.pipeThrough(monitorStream(chunk => {
+          chunk.node.addEventListener('load', () => resolve());
+          chunk.node.addEventListener('error', () => reject(Error('Script load error')));
+        })).pipeTo(new DOMWritable(document.body));
+
+        const writer = transform.writable.getWriter();
+        const content = `<script src="assets/script.js?prop=${varName}"></script>`;
+        if (charByChar) {
+          for (const char of content) writer.write(char);
+        } else {
+          writer.write(content);
+        }
+      });
+
+      await loadPromise;
+      assert.isTrue(self[varName]);
     });
   }
 
