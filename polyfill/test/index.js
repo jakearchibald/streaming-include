@@ -81,6 +81,10 @@ suite('Escaping the root', () => {
 });
 
 suite('Special elements', () => {
+  setup(() => {
+    for (const el of document.querySelectorAll('.test-stylesheet')) el.remove();
+  });
+
   test('Images do not load until connected', async () => {
     const transform = new DOMParserStream();
     const reader = transform.readable.getReader();
@@ -151,7 +155,6 @@ suite('Special elements', () => {
   }
 
   for (const charByChar of [false, true]) {
-
     test('External script' + (charByChar ? ' char by char' : ''), async () => {
       const varName = getUniqueName();
 
@@ -212,6 +215,35 @@ suite('Special elements', () => {
     assert.strictEqual(getComputedStyle(div).backgroundColor, 'rgb(0, 128, 0)');
     div.remove();
   });
+
+  for (const charByChar of [false, true]) {
+    test('External style' + (charByChar ? ' char by char' : ''), async () => {
+      const loadPromise = new Promise((resolve, reject) => {
+        const transform = new DOMParserStream();
+
+        transform.readable.pipeThrough(monitorStream(chunk => {
+          chunk.node.addEventListener('load', () => resolve());
+          chunk.node.addEventListener('error', () => reject(Error('Style load error')));
+        })).pipeTo(new DOMWritable(document.body));
+
+        const writer = transform.writable.getWriter();
+        const content = `<link class="test-stylesheet" rel="stylesheet" href="assets/style.css">`;
+
+        if (charByChar) {
+          for (const char of content) writer.write(char);
+        } else {
+          writer.write(content);
+        }
+      });
+
+      await loadPromise;
+      const div = document.createElement('div');
+      div.classList.add('test-style');
+      document.body.append(div);
+      assert.strictEqual(getComputedStyle(div).backgroundColor, 'rgb(0, 128, 0)');
+      div.remove();
+    });
+  }
 });
 
 // These are from https://github.com/html5lib/html5lib-tests/blob/master/tree-construction/tricky01.dat
