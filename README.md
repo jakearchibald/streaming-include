@@ -66,28 +66,45 @@ const domStream = response.body
 
 ## High-level solution
 
+A custom element.
+
 ```html
 <streaming-include src="data.inc"></streaming-include>
 ```
 
-A custom element.
+It fetches the `src`, clears the content of the element, pipes the response through `TextDecoderStream`, `HTMLParserStream`, then adds resulting elements (as with `DOMWritable`) to itself.
 
-It fetches the `src`, clears the content of the element, pipes the response through `TextDecoderStream`, `DOMParserStream`, `DOMParserBlocker`, then adds resulting elements (as with `DOMWritable`) to itself.
+Attributes:
 
-When `src` changes, any current stream is cancelled, and the above process starts again.
+* `src` - URL of the content. When `src` changes, any current stream is cancelled, and the above process starts again.
+* `crossorigin` - "anonymous" by default. Can be set to "use-credentials".
 
-### Questions
+Properties:
 
-What if the `src` response is `!ok`? What if it fails?
+* `src` and `crossOrigin` reflect their attributes.
+* `parsed` - A promise which resolves once the stream has been fully read and elements created. Rejects if the stream errors.
 
-With `src`, when does the loading start? What if the element is disconnected and reconnected (I kinda hate what iframe does here).
+If `src` is set (even to the same value), or `crossorigin` is set to a new value, any current stream is cancelled, and the loading process starts again.
 
-TODO. I haven't thought too hard about this yet.
+Events:
 
-### Implementation notes
+* `loadstart` - Fired when loading begins.
 
-TODO. I haven't thought too hard about this yet. The intent is that it can be easily created using the low-level parts.
+# Additional ideas
 
-## Use-cases met/missed
+There could also be a `DOMParserBlocker`:
 
-TODO. I want to measure this proposal against the use-cases identified in the [research](research.md).
+```js
+const throttledDOMStream = domStream.passThrough(new DOMParserBlocker());
+```
+
+This will apply the parser-blocking rules of scripts & stylesheets. Namely:
+
+* If a script-blocking stylesheet is passed through, it will hold-back any `<script>` until the stylesheet has loaded. However, it may continue to adopt nodes & buffer them (this will allow images to load).
+* If a parser-blocking script is encountered, it will wait until that script has executed before adopting further nodes.
+
+Because styles and scripts need to be connected to load/execute, you'll end up with a blocked stream if you aren't adding elements to a document with a browsing context.
+
+It's currently unclear how to handle scripts with `defer`.
+
+If we decide to do ths, `streaming-include` should use it.
