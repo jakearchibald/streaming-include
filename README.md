@@ -82,13 +82,17 @@ Attributes:
 Properties:
 
 * `src` and `crossOrigin` reflect their attributes.
-* `parsed` - A promise which resolves once the stream has been fully read and elements created. Rejects if the stream errors.
+* `parsed` - A promise that resolves once the response has been fully read and elements created. Rejects if the fetch errors.
 
 If `src` is set (even to the same value), or `crossorigin` is set to a new value, any current stream is cancelled, and the loading process starts again.
 
 Events:
 
 * `loadstart` - Fired when loading begins.
+
+Methods:
+
+* `abort()` - Abort any current fetch.
 
 # Additional ideas
 
