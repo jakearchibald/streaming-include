@@ -40,132 +40,135 @@ function cloneNode(node) {
  * @extends {TransformStream<string, ParserChunk>}
  */
 export class HTMLParserStream extends TransformStream {
+  /** @type {CloneMap<Node>} */
+  _cloneMap = new WeakMap();
+  /** @type {Parameters<typeof HTMLParserStream['prototype']['_flushNode']> | undefined} */
+  _bufferedEntry;
+  _doc = document.implementation.createHTMLDocument();
+  _root = this._doc.body;
+  /** @type {Node[]} */
+  _roots = [this._root];
+  _cloneStartPoint = document.createElement('template').content;
+
+  _observer = new MutationObserver((entries) => {
+    /** @type {Set<Node>} */
+    const removedNodes = new Set();
+
+    for (const entry of entries) {
+      for (const node of entry.removedNodes) {
+        // Nodes are removed during parse errors, but will reappear later. They may be inserted
+        // into a node that isn't currently in the document, so it won't reappear in addedNodes,
+        // so we need to cater for that.
+        removedNodes.add(node);
+      }
+      for (const node of entry.addedNodes) {
+        removedNodes.delete(node);
+        this._handleAddedNode(node, entry.target, entry.nextSibling);
+      }
+    }
+
+    while (removedNodes.size) {
+      for (const node of removedNodes) {
+        // I don't think there's a case where removed nodes simply disappear, but just in case:
+        if (!this._roots.some(root => root.contains(node))) {
+          removedNodes.delete(node);
+          continue;
+        }
+
+        // If we haven't added the parent or next sibling yet, leave it until a later iteration.
+        if (
+          removedNodes.has(/** @type {Node} */(node.parentNode)) ||
+          (node.nextSibling && removedNodes.has(node.nextSibling))
+        ) continue;
+
+        this._handleAddedNode(node, node.parentNode, node.nextSibling);
+        removedNodes.delete(node);
+      }
+    }
+  });
+
+  /**
+   * @param {Node} node
+   * @param {Node | null} parent
+   * @param {Node | null} nextSibling
+   */
+  _flushNode(node, parent, nextSibling) {
+    let isNewTemplate = false;
+
+    if (!this._cloneMap.has(node)) {
+      const clone = cloneNode(node);
+      this._cloneStartPoint.append(clone);
+      this._cloneMap.set(node, clone);
+
+      if (clone instanceof HTMLTemplateElement) {
+        isNewTemplate = true;
+        this._cloneMap.set(/** @type {HTMLTemplateElement} */ (node).content, clone.content);
+      }
+    }
+
+    this._controller.enqueue(
+      new ParserChunk(
+        /** @type {Node} */ (this._cloneMap.get(node)),
+        !parent || parent === this._root ? null : /** @type {Node} */ (this._cloneMap.get(parent)),
+        !nextSibling ? null : /** @type {Node} */ (this._cloneMap.get(nextSibling))
+      )
+    );
+
+    if (isNewTemplate) this._handleAddedTemplate(/** @type {HTMLTemplateElement} */ (node));
+  }
+
+  /**
+   * @param {Node} node
+   * @param {Node | null} parent
+   * @param {Node | null} nextSibling
+   */
+  _handleAddedNode(node, parent, nextSibling) {
+    // Text nodes are buffered until the next node comes along. This means we know the text is
+    // complete by the time we yield it, and we don't need to add more text to it.
+    if (this._bufferedEntry) {
+      this._flushNode(...this._bufferedEntry);
+      this._bufferedEntry = undefined;
+    }
+    if (node.nodeType === 3) {
+      this._bufferedEntry = [node, parent, nextSibling];
+      return;
+    }
+    this._flushNode(node, parent, nextSibling);
+  }
+
+  /**
+   * @param {HTMLTemplateElement} template
+   */
+  _handleAddedTemplate(template) {
+    const nodeIttr = this._doc.createNodeIterator(template.content);
+    let node;
+
+    while (node = nodeIttr.nextNode()) {
+      this._handleAddedNode(node, node.parentNode, null);
+    }
+
+    this._roots.push(template.content);
+    this._observer.observe(template.content, { subtree: true, childList: true });
+  }
+
+
   constructor() {
-    /** @type {CloneMap<Node>} */
-    const cloneMap = new WeakMap();
-    /** @type {Parameters<typeof flushNode> | undefined} */
-    let bufferedEntry;
-    const doc = document.implementation.createHTMLDocument();
-    const cloneStartPoint = document.createElement('template').content;
-    doc.write('<!DOCTYPE html><body>');
-    const root = doc.body;
-    /** @type {Node[]} */
-    const roots = [root];
+    super({
+      start: (c) => { controller = c; },
+      transform: (chunk) => { this._doc.write(chunk); },
+      flush: () => {
+        if (this._bufferedEntry) this._flushNode(...this._bufferedEntry);
+        this._doc.close();
+      }
+    });
 
     /** @type {TransformStreamDefaultController<ParserChunk>} */
-    let controller;
+    var controller;
+    // @ts-ignore
+    this._controller = controller;
 
-    /**
-     * @param {Node} node
-     * @param {Node | null} parent
-     * @param {Node | null} nextSibling
-     */
-    function flushNode(node, parent, nextSibling) {
-      let isNewTemplate = false;
-
-      if (!cloneMap.has(node)) {
-        const clone = cloneNode(node);
-        cloneStartPoint.append(clone);
-        cloneMap.set(node, clone);
-
-        if (clone instanceof HTMLTemplateElement) {
-          isNewTemplate = true;
-          cloneMap.set(/** @type {HTMLTemplateElement} */ (node).content, clone.content);
-        }
-      }
-
-      controller.enqueue(
-        new ParserChunk(
-          /** @type {Node} */ (cloneMap.get(node)),
-          !parent || parent === root ? null : /** @type {Node} */ (cloneMap.get(parent)),
-          !nextSibling ? null : /** @type {Node} */ (cloneMap.get(nextSibling))
-        )
-      );
-
-      if (isNewTemplate) handleAddedTemplate(/** @type {HTMLTemplateElement} */ (node));
-    }
-
-    /**
-     * @param {Node} node
-     * @param {Node | null} parent
-     * @param {Node | null} nextSibling
-     */
-    function handleAddedNode(node, parent, nextSibling) {
-      // Text nodes are buffered until the next node comes along. This means we know the text is
-      // complete by the time we yield it, and we don't need to add more text to it.
-      if (bufferedEntry) {
-        flushNode(...bufferedEntry);
-        bufferedEntry = undefined;
-      }
-      if (node.nodeType === 3) {
-        bufferedEntry = [node, parent, nextSibling];
-        return;
-      }
-      flushNode(node, parent, nextSibling);
-    }
-
-    /**
-     * @param {HTMLTemplateElement} template
-     */
-    function handleAddedTemplate(template) {
-      const nodeIttr = doc.createNodeIterator(template.content);
-      let node;
-
-      while (node = nodeIttr.nextNode()) {
-        handleAddedNode(node, node.parentNode, null);
-      }
-
-      roots.push(template.content);
-      observer.observe(template.content, { subtree: true, childList: true });
-    }
-
-    const observer = new MutationObserver((entries) => {
-      /** @type {Set<Node>} */
-      const removedNodes = new Set();
-
-      for (const entry of entries) {
-        for (const node of entry.removedNodes) {
-          // Nodes are removed during parse errors, but will reappear later. They may be inserted
-          // into a node that isn't currently in the document, so it won't reappear in addedNodes,
-          // so we need to cater for that.
-          removedNodes.add(node);
-        }
-        for (const node of entry.addedNodes) {
-          removedNodes.delete(node);
-          handleAddedNode(node, entry.target, entry.nextSibling);
-        }
-      }
-
-      while (removedNodes.size) {
-        for (const node of removedNodes) {
-          // I don't think there's a case where removed nodes simply disappear, but just in case:
-          if (!roots.some(root => root.contains(node))) {
-            removedNodes.delete(node);
-            continue;
-          }
-
-          // If we haven't added the parent or next sibling yet, leave it until a later iteration.
-          if (
-            removedNodes.has(/** @type {Node} */(node.parentNode)) ||
-            (node.nextSibling && removedNodes.has(node.nextSibling))
-          ) continue;
-
-          handleAddedNode(node, node.parentNode, node.nextSibling);
-          removedNodes.delete(node);
-        }
-      }
-    });
-
-    observer.observe(root, { subtree: true, childList: true });
-
-    super({
-      start(c) { controller = c; },
-      transform(chunk) { doc.write(chunk); },
-      flush() {
-        if (bufferedEntry) flushNode(...bufferedEntry);
-        doc.close();
-      }
-    });
+    this._doc.write('<!DOCTYPE html><body>');
+    this._observer.observe(this._root, { subtree: true, childList: true });
   }
 }
 
