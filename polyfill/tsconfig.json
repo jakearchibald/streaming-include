@@ -6,5 +6,5 @@
     "target": "esnext",
     "outDir": "out"
   },
-  "files": ["./index.js"]
+  "files": ["./index.js", "./streaming-include.js"]
 }
