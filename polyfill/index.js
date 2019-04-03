@@ -39,7 +39,7 @@ function cloneNode(node) {
 /**
  * @extends {TransformStream<string, ParserChunk>}
  */
-export class DOMParserStream extends TransformStream {
+export class HTMLParserStream extends TransformStream {
   constructor() {
     /** @type {CloneMap<Node>} */
     const cloneMap = new WeakMap();

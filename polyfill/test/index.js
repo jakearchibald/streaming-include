@@ -1,7 +1,7 @@
 import '../../node_modules/mocha/mocha.js';
 import '../../node_modules/chai/chai.js';
 
-import { DOMParserStream, DOMWritable } from '../index.js'
+import { HTMLParserStream, DOMWritable } from '../index.js'
 
 mocha.setup('tdd');
 
@@ -14,7 +14,7 @@ function getUniqueName() {
 }
 
 function createElementWritable(el) {
-  const transform = new DOMParserStream();
+  const transform = new HTMLParserStream();
   transform.readable.pipeTo(new DOMWritable(el));
   return transform.writable;
 }
@@ -86,7 +86,7 @@ suite('Special elements', () => {
   });
 
   test('Images do not load until connected', async () => {
-    const transform = new DOMParserStream();
+    const transform = new HTMLParserStream();
     const reader = transform.readable.getReader();
     const writer = transform.writable.getWriter();
     writer.write('<img src="assets/img.png">');
@@ -134,7 +134,7 @@ suite('Special elements', () => {
 
   for (const charByChar of [false, true]) {
     test('Script attributes' + (charByChar ? ' char by char' : ''), async () => {
-      const transform = new DOMParserStream();
+      const transform = new HTMLParserStream();
       const writer = transform.writable.getWriter();
       const className = getUniqueName();
       const dataValue = getUniqueName();
@@ -159,7 +159,7 @@ suite('Special elements', () => {
       const varName = getUniqueName();
 
       const loadPromise = new Promise((resolve, reject) => {
-        const transform = new DOMParserStream();
+        const transform = new HTMLParserStream();
 
         transform.readable.pipeThrough(monitorStream(chunk => {
           chunk.node.addEventListener('load', () => resolve());
@@ -219,7 +219,7 @@ suite('Special elements', () => {
   for (const charByChar of [false, true]) {
     test('External style' + (charByChar ? ' char by char' : ''), async () => {
       const loadPromise = new Promise((resolve, reject) => {
-        const transform = new DOMParserStream();
+        const transform = new HTMLParserStream();
 
         transform.readable.pipeThrough(monitorStream(chunk => {
           chunk.node.addEventListener('load', () => resolve());

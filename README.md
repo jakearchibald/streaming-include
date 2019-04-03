@@ -25,11 +25,10 @@ The aim is to create an API that generates elements from an HTML stream. Because
 const response = await fetch(url);
 const domStream = response.body
   .pipeThrough(new TextDecoderStream())
-  .pipeThrough(new DOMParserStream({ context, contextNS }));
+  .pipeThrough(new HTMLParserStream());
 ```
 
-* `context` (optional) - An context is created with this local name, in a document without a browsing context (like a template), in the HTML namespace. The default is `"body"`.
-* `contextNS` (optional) - The namespace of the context. HTML by default.
+The stream yields `ParserChunk`s:
 
 ```js
 for await (const { node, parent, nextSibling } of domStream) {
@@ -38,50 +37,13 @@ for await (const { node, parent, nextSibling } of domStream) {
 ```
 
 * `node` - The newly created node.
-* `parent` - The node it should be inserted into. Might be null.
-* `nextSibling` - The node it should be inserted before. Might be null.
-
-The node will not have a parent. It's up to the developer to add nodes wherever they want, or discard them.
+* `parent` - The node it should be inserted into. Null for top-level elements.
+* `nextSibling` - The node it should be inserted before. Null for elements that should be inserted as the last item of their parent.
 
 **Note:** The stream yields every node including descendants, not just top-level nodes. This means:
 
-* Once `DOMParserStream` yields a node, it isn't going to add anything to it later.
+* Once `HTMLParserStream` yields a node, it isn't going to add anything to it automatically.
 * Developers can modify nodes before they're adopted. This means they can change image urls before they're requested, or filter script nodes before they're executed.
-
-In addition, there will be a:
-
-```js
-const throttledDOMStream = domStream.passThrough(new DOMParserBlocker());
-```
-
-This will apply the parser-blocking rules of scripts & stylesheets. Namely:
-
-* If a script-blocking stylesheet is passed through, it will hold-back any `<script>` until the stylesheet has loaded. However, it may continue to adopt nodes & buffer them (this will allow images to load).
-* If a parser-blocking script is encountered, it will wait until that script has executed before adopting further nodes.
-
-Because styles and scripts need to be connected to load/execute, you'll end up with a blocked stream if you aren't adding elements to a document with a browsing context.
-
-### Questions
-
-Is `{ node, parent, before }` enough to express some of the more complicated error handling in HTML?
-
-Is `context`/`contextNS` enough? Or does the parser need to know about ancestor elements? `createContextualFragment` uses a `Range` for this.
-
-Do we care about XML parsing?
-
-Do we want something even lower level that describes nodes using simple structured-clonable objects? Then, it could be used in a worker.
-
-### Implementation notes
-
-Turns out you can `document.write` to a document created with `document.implementation.createHTMLDocument()`. This gives us access to the streaming parser.
-
-The writing would start `"<template>"` followed by whatever is needed to set up the `context`. This means the incoming HTML could break out of the context/template using closing tags. We'd need to find a way to prevent this.
-
-Scripts parsed into different documents [shouldn't execute](https://html.spec.whatwg.org/multipage/parsing.html#scripts-that-modify-the-page-as-it-is-being-parsed), although they do in Chrome. In this case, we'd want all scripts to execute when they're added to the document. Maybe this could be done by recreating the script element with the same content & attributes in the current document.
-
-The script element will appear in the DOM as soon as `<script>hello` is parsed. We'll need to ensure it isn't yielded until `</script>` is parsed. I guess the same will be true for `<style>`.
-
-The polyfill is HTML-specific. Maybe the naming should reflect that.
 
 ## Mid-level solution
 
@@ -91,15 +53,14 @@ const writable = new DOMWritable(targetElement);
 
 * `targetElement` - The element to insert nodes into.
 
-This writable takes the output of `DOMParserStream` and appends them into the `targetElement`.
+This writable takes the output of `HTMLParserStream` and appends them into the `targetElement`.
 
 ```js
 const bodyWritable = new DOMWritable(targetElement);
 const response = await fetch(url);
 const domStream = response.body
   .pipeThrough(new TextDecoderStream())
-  .pipeThrough(new DOMParserStream())
-  .passThrough(new DOMParserBlocker())
+  .pipeThrough(new HTMLParserStream())
   .pipeTo(bodyWritable);
 ```
 
