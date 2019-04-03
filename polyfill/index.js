@@ -49,6 +49,8 @@ export class HTMLParserStream extends TransformStream {
   /** @type {Node[]} */
   _roots = [this._root];
   _cloneStartPoint = document.createElement('template').content;
+  /** @type {TransformStreamDefaultController<ParserChunk>} */
+  _controller;
 
   _observer = new MutationObserver((entries) => {
     /** @type {Set<Node>} */
@@ -88,11 +90,12 @@ export class HTMLParserStream extends TransformStream {
   });
 
   /**
+   * @this {HTMLParserStream}
    * @param {Node} node
    * @param {Node | null} parent
    * @param {Node | null} nextSibling
    */
-  _flushNode(node, parent, nextSibling) {
+  _flushNode = function flushNode(node, parent, nextSibling) {
     let isNewTemplate = false;
 
     if (!this._cloneMap.has(node)) {
@@ -118,11 +121,12 @@ export class HTMLParserStream extends TransformStream {
   }
 
   /**
+   * @this {HTMLParserStream}
    * @param {Node} node
    * @param {Node | null} parent
    * @param {Node | null} nextSibling
    */
-  _handleAddedNode(node, parent, nextSibling) {
+  _handleAddedNode = function handleAddedNode(node, parent, nextSibling) {
     // Text nodes are buffered until the next node comes along. This means we know the text is
     // complete by the time we yield it, and we don't need to add more text to it.
     if (this._bufferedEntry) {
@@ -130,6 +134,7 @@ export class HTMLParserStream extends TransformStream {
       this._bufferedEntry = undefined;
     }
     if (node.nodeType === 3) {
+      // @ts-ignore
       this._bufferedEntry = [node, parent, nextSibling];
       return;
     }
@@ -137,9 +142,10 @@ export class HTMLParserStream extends TransformStream {
   }
 
   /**
+   * @this {HTMLParserStream}
    * @param {HTMLTemplateElement} template
    */
-  _handleAddedTemplate(template) {
+  _handleAddedTemplate = function handleAddedTemplate(template) {
     const nodeIttr = this._doc.createNodeIterator(template.content);
     let node;
 
