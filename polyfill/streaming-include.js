@@ -15,16 +15,24 @@ function crossOriginAttrToProp(attrVal) {
 export default class HTMLStreamingIncludeElement extends HTMLElement {
   static get observedAttributes() { return observedAttributes; }
   _parsed = Promise.resolve();
-  _loadPending = false;
+  _loadQueued = false;
+  _loadOnConnect = false;
   /** @type {AbortController | undefined} */
   _abortController;
 
   /**
    * @this {HTMLStreamingIncludeElement}
-   * @returns {void}
+   * @returns {Promise<void>}
    */
-  _startLoad = function startLoad() {
-    this._loadPending = false;
+  _startLoad = async function startLoad() {
+    if (this._loadQueued) return;
+    this._loadQueued = true;
+    this._loadOnConnect = false;
+
+    // Wait for a microtask to pick up multiple attribute changes, and so 'loadstart' doesn't fire
+    // synchronously
+    await undefined;
+
     /** @type {string} */
     let url;
 
@@ -81,7 +89,11 @@ export default class HTMLStreamingIncludeElement extends HTMLElement {
   }
 
   set crossOrigin(newVal) {
-    this.setAttribute('src', newVal);
+    if (newVal === null) {
+      this.removeAttribute('crossorigin');
+      return;
+    }
+    this.setAttribute('crossorigin', newVal);
   }
 
   /**
@@ -100,7 +112,7 @@ export default class HTMLStreamingIncludeElement extends HTMLElement {
   }
 
   connectedCallback() {
-    if (this._loadPending) this._startLoad();
+    if (this._loadOnConnect) this._startLoad();
   }
 
   /**
@@ -109,21 +121,26 @@ export default class HTMLStreamingIncludeElement extends HTMLElement {
    * @param {string | null} newValue
    */
   async attributeChangedCallback(name, oldValue, newValue) {
-    if (this._loadPending) return;
+    let shouldTriggerLoad = false;
 
     if (name === 'src') {
       // Like <img>, any change to src triggers a load, even if the value is the same.
-      this._loadPending = true;
+      shouldTriggerLoad = true;
     } else if (name === 'crossorigin') {
       // Like <img>, crossorigin must change computed value to trigger a load.
       if (crossOriginAttrToProp(oldValue) !== crossOriginAttrToProp(newValue)) {
-        this._loadPending = true;
+        shouldTriggerLoad = true;
       }
     }
 
-    // Wait a microtask to collect multiple changes
-    await undefined;
-    if (this.isConnected) this._startLoad();
+    if (!shouldTriggerLoad) return;
+
+    if (!this.isConnected) {
+      this._loadOnConnect = true;
+      return;
+    }
+
+    this._startLoad();
   }
 }
 

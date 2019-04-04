@@ -2,6 +2,7 @@ import '../../node_modules/mocha/mocha.js';
 import '../../node_modules/chai/chai.js';
 
 import { HTMLParserStream, DOMWritable } from '../index.js'
+import HTMLStreamingIncludeElement from '../streaming-include.js';
 
 mocha.setup('tdd');
 
@@ -26,6 +27,25 @@ function monitorStream(callback) {
       controller.enqueue(chunk);
     }
   });
+}
+
+function wait(ms = 0) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+/**
+ * @param {HTMLStreamingIncludeElement} el
+ */
+function assertSmallContent(el) {
+  const div = document.createElement('div');
+  div.innerHTML = '<strong>hello</strong> <em>world</em>\n';
+  const divChildren = div.childNodes;
+
+  assert.strictEqual(el.childNodes.length, divChildren.length);
+
+  for (const [i, node] of [...el.childNodes].entries()) {
+    assert.isTrue(node.isEqualNode(divChildren[i]));
+  }
 }
 
 function parseHTMLTest(html) {
@@ -277,6 +297,150 @@ suite('Tricky tests', () => {
     // Also test within a template
     parseHTMLTest(`<template>${trickyTest}</template>`);
   }
+});
+
+suite('<streaming-include>', () => {
+  test('Can be constructed', () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    assert.instanceOf(streamingInclude, HTMLElement);
+    assert.strictEqual(streamingInclude.tagName, 'STREAMING-INCLUDE');
+  });
+
+  test('Can be upgraded', () => {
+    const div = document.createElement('div');
+    div.innerHTML = '<streaming-include></streaming-include>';
+    const streamingInclude = div.firstElementChild;
+    assert.instanceOf(streamingInclude, HTMLStreamingIncludeElement);
+  });
+
+  {
+    const attrsToProps = [
+      [undefined, ''],
+      ['foo', new URL('foo', location).href],
+      ['', new URL('', location).href],
+      ['about:blank', 'about:blank'],
+      ['https://example.com/', 'https://example.com/'],
+      ['https://example.com', 'https://example.com/'],
+      ['http://[1::2]:3:4', 'http://[1::2]:3:4'],
+    ];
+
+    for (const [attr, expectedProp] of attrsToProps) {
+      test('src prop reflects ' + JSON.stringify(attr), () => {
+        const streamingInclude = new HTMLStreamingIncludeElement();
+        if (attr !== undefined) streamingInclude.setAttribute('src', attr);
+        assert.strictEqual(streamingInclude.src, expectedProp);
+      });
+    }
+  }
+
+  {
+    const propsToAttrs = [
+      [null, 'null'],
+      ['', ''],
+      ['foo', 'foo'],
+      ['about:blank', 'about:blank'],
+      ['https://example.com', 'https://example.com'],
+      ['http://[1::2]:3:4', 'http://[1::2]:3:4'],
+    ];
+
+    for (const [prop, expectedAttr] of propsToAttrs) {
+      test('src prop sets attr - ' + JSON.stringify(prop), () => {
+        const streamingInclude = new HTMLStreamingIncludeElement();
+        streamingInclude.src = prop;
+        assert.strictEqual(streamingInclude.getAttribute('src'), expectedAttr);
+      });
+    }
+  }
+
+  {
+    const attrsToProps = [
+      [undefined, 'anonymous'],
+      ['', 'anonymous'],
+      ['foo', 'anonymous'],
+      ['anonymous', 'anonymous'],
+      ['anonymouS', 'anonymous'],
+      ['use-credentials', 'use-credentials'],
+      ['use-credentialS', 'use-credentials'],
+    ];
+
+    for (const [attr, expectedProp] of attrsToProps) {
+      test('crossOrigin prop reflects ' + JSON.stringify(attr), () => {
+        const streamingInclude = new HTMLStreamingIncludeElement();
+        if (attr !== undefined) streamingInclude.setAttribute('crossorigin', attr);
+        assert.strictEqual(streamingInclude.crossOrigin, expectedProp);
+      });
+    }
+  }
+
+  {
+    const propsToAttrs = [
+      [null, null],
+      ['', ''],
+      ['foo', 'foo'],
+      ['anonymous', 'anonymous'],
+      ['anonymouS', 'anonymouS'],
+      ['use-credentials', 'use-credentials'],
+      ['use-credentiaLS', 'use-credentiaLS'],
+    ];
+
+    for (const [prop, expectedAttr] of propsToAttrs) {
+      test('crossOrigin prop sets attr - ' + JSON.stringify(prop), () => {
+        const streamingInclude = new HTMLStreamingIncludeElement();
+        streamingInclude.crossOrigin = prop;
+        assert.strictEqual(streamingInclude.getAttribute('crossorigin'), expectedAttr);
+      });
+    }
+  }
+
+  test('parsed starts resolved', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    assert.instanceOf(streamingInclude.parsed, Promise);
+    const val = await streamingInclude.parsed;
+    assert.isUndefined(val);
+  });
+
+  test('Connecting without setting src does not load', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    let loadStarted = false;
+
+    streamingInclude.addEventListener('loadstart', () => {
+      loadStarted = true;
+    });
+
+    document.body.appendChild(streamingInclude);
+    await wait();
+
+    assert.strictEqual(loadStarted, false);
+  });
+
+  test('Setting src after connected starts load', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    const oldParsed = streamingInclude.parsed;
+    streamingInclude.src = 'assets/small-content.html';
+    document.body.appendChild(streamingInclude);
+
+    await new Promise((resolve) => {
+      streamingInclude.addEventListener('loadstart', resolve, { once: true });
+    });
+
+    assert.notEqual(oldParsed, streamingInclude.parsed);
+    await streamingInclude.parsed;
+    assertSmallContent(streamingInclude);
+    streamingInclude.remove();
+  });
+
+  test('Setting src before connected starts load');
+  // Check if this is how <img> behaves
+  test('Setting crossOrigin but not src does not start load');
+  test('Changing crossOrigin starts load');
+  test('Changing crossOrigin to same value does not start load');
+  test('Changing crossOrigin when disconnected starts load on connect');
+  test('Changing src starts load for a second time');
+  test('Adding & removing src before connection does not start load');
+  test('Content streams');
+  test('Response failure rejects parsed');
+  test('Response body failure rejects parsed');
+  test('Can be aborted');
 });
 
 mocha.run();
