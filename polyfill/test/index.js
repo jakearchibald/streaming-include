@@ -34,17 +34,39 @@ function wait(ms = 0) {
 }
 
 /**
+ * @param {() => Promise<void>} callback
+ */
+async function assertNoNetworkActivity(callback) {
+  performance.clearResourceTimings();
+  await callback();
+  assert.strictEqual(
+    performance.getEntriesByType('resource').length,
+    0,
+    'No network activity'
+  );
+}
+
+async function assertURLRequested(url, callback) {
+  url = new URL(url, location).href;
+  performance.clearResourceTimings();
+  await callback();
+  const entries = /** @type {PerformanceResourceTiming[]} */(performance.getEntriesByType('resource'));
+  assert.isTrue(entries.some(entry => entry.name === url));
+}
+
+const smallContent1 = document.createElement('div');
+smallContent1.innerHTML = '<strong>hello</strong> <em>world</em>\n';
+const smallContent2 = document.createElement('div');
+smallContent2.innerHTML = '<em>foo</em> <strong>bar</strong>\n';
+
+/**
  * @param {HTMLStreamingIncludeElement} el
  */
-function assertSmallContent(el) {
-  const div = document.createElement('div');
-  div.innerHTML = '<strong>hello</strong> <em>world</em>\n';
-  const divChildren = div.childNodes;
+function assertElContentEqual(el1, el2) {
+  assert.strictEqual(el1.childNodes.length, el2.childNodes.length);
 
-  assert.strictEqual(el.childNodes.length, divChildren.length);
-
-  for (const [i, node] of [...el.childNodes].entries()) {
-    assert.isTrue(node.isEqualNode(divChildren[i]));
+  for (const [i, node] of [...el1.childNodes].entries()) {
+    assert.isTrue(node.isEqualNode(el2.childNodes[i]));
   }
 }
 
@@ -392,55 +414,124 @@ suite('<streaming-include>', () => {
     }
   }
 
-  test('parsed starts resolved', async () => {
+  test('parsed initial value', async () => {
     const streamingInclude = new HTMLStreamingIncludeElement();
     assert.instanceOf(streamingInclude.parsed, Promise);
+    assert.strictEqual(streamingInclude.parsed, streamingInclude.parsed);
     const val = await streamingInclude.parsed;
     assert.isUndefined(val);
   });
 
-  test('Connecting without setting src does not load', async () => {
+  test('parsed changes when src changes', async () => {
     const streamingInclude = new HTMLStreamingIncludeElement();
-    let loadStarted = false;
+    const oldParsed = streamingInclude.parsed;
+    streamingInclude.src = 'foo';
+    assert.notStrictEqual(oldParsed, streamingInclude.parsed);
+  });
 
-    streamingInclude.addEventListener('loadstart', () => {
-      loadStarted = true;
+  test('parsed changes to rejected promise when invalid URL given', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    streamingInclude.src = 'http://[1::2]:3:4';
+    const err = await streamingInclude.parsed.catch(err => err);
+    assert.instanceOf(err, TypeError);
+  });
+
+  test('Previous parsed promise aborts when new promise is created', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    streamingInclude.src = 'bar';
+    const oldParsed = streamingInclude.parsed;
+    streamingInclude.src = 'foo';
+    const err = await oldParsed.catch(err => err);
+    assert.instanceOf(err, DOMException);
+    assert.strictEqual(err.name, 'AbortError');
+  });
+
+  test('parsed changes when crossorigin changes calculated value', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    const oldParsed = streamingInclude.parsed;
+    streamingInclude.crossOrigin = 'anonymous';
+    assert.strictEqual(oldParsed, streamingInclude.parsed);
+    streamingInclude.crossOrigin = 'use-credentials';
+    assert.notStrictEqual(oldParsed, streamingInclude.parsed);
+  });
+
+  test('Connecting without setting src does not load', async () => {
+    await assertNoNetworkActivity(async () => {
+      const streamingInclude = new HTMLStreamingIncludeElement();
+      document.body.append(streamingInclude);
+      await wait(0);
+      streamingInclude.remove();
     });
-
-    document.body.appendChild(streamingInclude);
-    await wait();
-
-    assert.strictEqual(loadStarted, false);
   });
 
   test('Setting src after connected starts load', async () => {
     const streamingInclude = new HTMLStreamingIncludeElement();
-    const oldParsed = streamingInclude.parsed;
-    streamingInclude.src = 'assets/small-content.html';
-    document.body.appendChild(streamingInclude);
-
-    await new Promise((resolve) => {
-      streamingInclude.addEventListener('loadstart', resolve, { once: true });
-    });
-
-    assert.notEqual(oldParsed, streamingInclude.parsed);
+    document.body.append(streamingInclude);
+    streamingInclude.src = 'assets/small-content-1.html';
     await streamingInclude.parsed;
-    assertSmallContent(streamingInclude);
+    assertElContentEqual(streamingInclude, smallContent1);
     streamingInclude.remove();
   });
 
-  test('Setting src before connected starts load');
-  // Check if this is how <img> behaves
-  test('Setting crossOrigin but not src does not start load');
-  test('Changing crossOrigin starts load');
-  test('Changing crossOrigin to same value does not start load');
+  test('Setting src before connected starts load once connected', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    streamingInclude.src = 'assets/small-content-1.html';
+    document.body.append(streamingInclude);
+    await streamingInclude.parsed;
+    assertElContentEqual(streamingInclude, smallContent1);
+    streamingInclude.remove();
+  });
+
+  test('Content can load twice', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    streamingInclude.src = 'assets/small-content-1.html';
+    document.body.append(streamingInclude);
+    await streamingInclude.parsed;
+    assertElContentEqual(streamingInclude, smallContent1);
+
+    streamingInclude.src = 'assets/small-content-2.html';
+    await streamingInclude.parsed;
+    assertElContentEqual(streamingInclude, smallContent2);
+    streamingInclude.remove();
+  });
+
+  test('Changing crossOrigin starts load', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    streamingInclude.src = 'assets/small-content-1.html';
+    document.body.append(streamingInclude);
+    await streamingInclude.parsed;
+
+    await assertURLRequested('assets/small-content-1.html', async () => {
+      streamingInclude.crossOrigin = 'use-credentials';
+      await streamingInclude.parsed;
+    });
+
+    streamingInclude.remove();
+  });
+
+  test('Changing crossOrigin to same value does not start load', async () => {
+    const streamingInclude = new HTMLStreamingIncludeElement();
+    streamingInclude.src = 'assets/small-content-1.html';
+    document.body.append(streamingInclude);
+    await streamingInclude.parsed;
+
+    await assertNoNetworkActivity(async () => {
+      streamingInclude.crossOrigin = 'splurb';
+      await streamingInclude.parsed;
+    });
+
+    streamingInclude.remove();
+  });
+
   test('Changing crossOrigin when disconnected starts load on connect');
   test('Changing src starts load for a second time');
+  test('Setting crossOrigin but not src does not start load');
   test('Adding & removing src before connection does not start load');
   test('Content streams');
   test('Response failure rejects parsed');
   test('Response body failure rejects parsed');
   test('Can be aborted');
+  test('Network request aborted when aborted');
 });
 
 mocha.run();

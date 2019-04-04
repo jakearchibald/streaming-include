@@ -86,10 +86,6 @@ Properties:
 
 If `src` is set (even to the same value), or `crossorigin` is set to a new value, any current stream is cancelled, and the loading process starts again.
 
-Events:
-
-* `loadstart` - Fired when loading begins.
-
 Methods:
 
 * `abort()` - Abort any current fetch.

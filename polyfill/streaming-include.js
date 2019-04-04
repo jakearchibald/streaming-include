@@ -14,56 +14,66 @@ function crossOriginAttrToProp(attrVal) {
 
 export default class HTMLStreamingIncludeElement extends HTMLElement {
   static get observedAttributes() { return observedAttributes; }
-  _parsed = Promise.resolve();
-  _loadQueued = false;
-  _loadOnConnect = false;
   /** @type {AbortController | undefined} */
   _abortController;
+  /** @type {Promise<void>} */
+  _parsed = Promise.resolve();
+  /** @type {(() => void)} */
+  // @ts-ignore - This value is set in the promise constructor
+  _connectedResolve;
+  /** @type {Promise<void>} */
+  _connected = new Promise(resolve => { this._connectedResolve = resolve; })
 
   /**
    * @this {HTMLStreamingIncludeElement}
-   * @returns {Promise<void>}
+   * @returns {void}
    */
-  _startLoad = async function startLoad() {
-    if (this._loadQueued) return;
-    this._loadQueued = true;
-    this._loadOnConnect = false;
+  _initLoad = function startLoad() {
+    if (this._abortController) this._abortController.abort();
+    this.innerHTML = '';
 
-    // Wait for a microtask to pick up multiple attribute changes, and so 'loadstart' doesn't fire
-    // synchronously
-    await undefined;
-
-    /** @type {string} */
-    let url;
-
-    try {
-      url = new URL(this.src).href;
-    } catch (err) {
+    if (!this.hasAttribute('src')) {
+      this._parsed = Promise.resolve();
       return;
     }
 
-    if (this._abortController) this._abortController.abort();
+    // Catch invalid URLs:
+    try {
+      new URL(this.src);
+    } catch (err) {
+      this._parsed = Promise.reject(new TypeError());
+      return;
+    }
 
-    const includeCredentials = this.crossOrigin === 'use-credentials';
     const { signal } = this._abortController = new AbortController();
-
-    this._parsed = fetch(url, {
-      signal,
-      credentials: includeCredentials ? 'include' : 'same-origin'
-    }).then(async (response) => {
-      // Clear current content
-      this.innerHTML = '';
-      const body = /** @type {ReadableStream<Uint8Array>} */(response.body);
-
-      await body
-        // @ts-ignore - Type checker doesn't know about TextDecoderStream.
-        .pipeThrough(new TextDecoderStream())
-        .pipeThrough(new HTMLParserStream())
-        // @ts-ignore - Type checker doesn't know about the signal option.
-        .pipeTo(new DOMWritable(this), { signal });
+    const abortReject = new Promise((_, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('', 'AbortError')));
     });
 
-    this.dispatchEvent(new Event('loadstart'));
+    this._parsed = Promise.race([
+      abortReject,
+      (async () => {
+        // This microtask not only waits for the element to be connected, but if it's already
+        // connected it allows for multiple attribute/property changes to be rolled into one fetch.
+        await this._connected;
+        if (signal.aborted) return;
+
+        const includeCredentials = this.crossOrigin === 'use-credentials';
+        const response = await fetch(this.src, {
+          signal,
+          credentials: includeCredentials ? 'include' : 'same-origin'
+        });
+
+        const body = /** @type {ReadableStream<Uint8Array>} */(response.body);
+
+        await body
+          // @ts-ignore - Type checker doesn't know about TextDecoderStream.
+          .pipeThrough(new TextDecoderStream())
+          .pipeThrough(new HTMLParserStream())
+          // @ts-ignore - Type checker doesn't know about the signal option.
+          .pipeTo(new DOMWritable(this), { signal });
+      })(),
+    ]);
   };
 
   /** @type {string} */
@@ -99,6 +109,8 @@ export default class HTMLStreamingIncludeElement extends HTMLElement {
   /**
    * A promise that resolves once the response has been fully read and elements created. Rejects if
    * the fetch errors.
+   *
+   * @returns {Promise<void>}
    */
   get parsed() {
     return this._parsed;
@@ -112,7 +124,11 @@ export default class HTMLStreamingIncludeElement extends HTMLElement {
   }
 
   connectedCallback() {
-    if (this._loadOnConnect) this._startLoad();
+    this._connectedResolve();
+  }
+
+  disconnectedCallback() {
+    this._connected = new Promise(resolve => { this._connectedResolve = resolve; })
   }
 
   /**
@@ -121,26 +137,19 @@ export default class HTMLStreamingIncludeElement extends HTMLElement {
    * @param {string | null} newValue
    */
   async attributeChangedCallback(name, oldValue, newValue) {
-    let shouldTriggerLoad = false;
-
     if (name === 'src') {
       // Like <img>, any change to src triggers a load, even if the value is the same.
-      shouldTriggerLoad = true;
-    } else if (name === 'crossorigin') {
-      // Like <img>, crossorigin must change computed value to trigger a load.
-      if (crossOriginAttrToProp(oldValue) !== crossOriginAttrToProp(newValue)) {
-        shouldTriggerLoad = true;
-      }
-    }
-
-    if (!shouldTriggerLoad) return;
-
-    if (!this.isConnected) {
-      this._loadOnConnect = true;
+      this._initLoad();
       return;
     }
 
-    this._startLoad();
+    if (name === 'crossorigin') {
+      // Like <img>, crossorigin must change computed value to trigger a load.
+      if (crossOriginAttrToProp(oldValue) !== crossOriginAttrToProp(newValue)) {
+        this._initLoad();
+      }
+      return;
+    }
   }
 }
 
