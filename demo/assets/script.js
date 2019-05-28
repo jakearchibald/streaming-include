@@ -38,6 +38,15 @@ fetchBtn.addEventListener('click', fetchContent);
 streamBtn.addEventListener('click', streamContent);
 naiveBtn.addEventListener('click', naiveStreamContent);
 
+self.api = {
+  fetchContent,
+  streamContent,
+  naiveStreamContent,
+  navigate() {
+    location.href = 'navigate.html';
+  }
+};
+
 const url = new URL(location);
 
 if (url.searchParams.has('fetch')) {
