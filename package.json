@@ -3,6 +3,6 @@
   "private": true,
   "devDependencies": {
     "chai": "^4.2.0",
-    "mocha": "^6.0.0"
+    "mocha": "^6.1.4"
   }
 }

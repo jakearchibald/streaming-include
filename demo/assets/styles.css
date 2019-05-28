@@ -12,6 +12,8 @@ body {
 .actions li {
   margin: 1rem 0;
 }
+
+/* Github styles */
 .pl-c { color: rgb(150, 152, 150); }
 .pl-c1, .pl-s .pl-v { color: rgb(0, 134, 179); }
 .pl-e, .pl-en { color: rgb(121, 93, 163); }
